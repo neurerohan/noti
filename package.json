@@ -21,7 +21,6 @@
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "moment-timezone": "^0.5.45",
-    "node-cron": "^3.0.3",
-    "nepali-calendar-js": "^1.0.0"
+    "node-cron": "^3.0.3"
   }
 } 

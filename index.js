@@ -2,15 +2,12 @@ require('dotenv').config();
 const cron = require('node-cron');
 const axios = require('axios');
 const moment = require('moment-timezone');
-const NepaliCalendar = require('nepali-calendar-js');
 
 const ONE_SIGNAL_API_KEY = process.env.ONESIGNAL_API_KEY;
 const ONE_SIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
 const NPT_TIMEZONE = 'Asia/Kathmandu'; // UTC+5:45
-const AXIOS_TIMEOUT = 15000; // 15 seconds timeout for OneSignal API calls
-
-// Initialize the calendar - Use current date context by default
-const calendar = new NepaliCalendar();
+const AXIOS_TIMEOUT = 20000; // Increased timeout slightly for external API
+const NP_EVENTS_API_BASE_URL = 'https://npclapi.casualsnek.eu.org/v2'; // API Base URL
 
 // --- OneSignal API Helper ---
 async function scheduleNotification(holidayName, dateNpString, notificationType, sendAfterUtc) {
@@ -70,103 +67,119 @@ async function scheduleNotification(holidayName, dateNpString, notificationType,
     }
 }
 
-// --- Date Calculation Logic (Using nepali-calendar-js) ---
-function calculateAndScheduleNotifications() {
+// --- Date Calculation Logic (Using npEventsAPI) ---
+async function calculateAndScheduleNotifications() { // Made async for await axios
     console.log(`
 [${moment().tz(NPT_TIMEZONE).format()}] Running daily check for upcoming holidays...`);
 
     let holidaysFound = 0;
-    const today = moment.tz(NPT_TIMEZONE); // Use moment for today's AD date
+    const today = moment.tz(NPT_TIMEZONE);
+    const fromDate = moment(today).add(1, 'days'); // Start check from tomorrow
+    const toDate = moment(today).add(30, 'days'); // Check up to 30 days ahead
 
-    console.log(`Checking next 30 days from ${today.format('YYYY-MM-DD')} (NPT)...`);
+    const fromDateStr = fromDate.format('YYYY-MM-DD');
+    const toDateStr = toDate.format('YYYY-MM-DD');
 
-    // Loop through the next 30 days starting from tomorrow
-    for (let i = 1; i <= 30; i++) {
-        const targetAdDateMoment = moment(today).add(i, 'days');
-        const adYear = targetAdDateMoment.year();
-        const adMonth = targetAdDateMoment.month() + 1; // moment months are 0-indexed
-        const adDay = targetAdDateMoment.date();
+    const apiUrl = `${NP_EVENTS_API_BASE_URL}/range/ad/from/${fromDateStr}/to/${toDateStr}`; // Using AD dates for API call
+    console.log(`Querying API for date range: ${fromDateStr} to ${toDateStr} -> ${apiUrl}`);
 
-        try {
-            // Convert AD date to BS date using the library
-            // Ensure this function exists and works as expected
-            const bsDate = calendar.ad2bs(adYear, adMonth, adDay);
-            if (!bsDate || !bsDate.bsYear || !bsDate.bsMonth || !bsDate.bsDay) {
-                console.warn(`[${adYear}-${adMonth}-${adDay}] Failed to convert AD to BS.`);
-                continue;
-            }
+    try {
+        const response = await axios.get(apiUrl, { timeout: AXIOS_TIMEOUT });
+        const apiData = response.data;
 
-            const bsYear = bsDate.bsYear;
-            const bsMonth = bsDate.bsMonth; // Assuming 1-indexed from library
-            const bsDay = bsDate.bsDay;
-            const dateNpString = `${bsYear}-${String(bsMonth).padStart(2, '0')}-${String(bsDay).padStart(2, '0')}`;
+        if (!apiData || typeof apiData !== 'object') {
+            console.error("API Error: Invalid response structure received.", apiData);
+            return;
+        }
 
-            // --- Check Day of Week --- 
-            // Use moment's day() method on the target AD date
-            const dayOfWeek = targetAdDateMoment.day(); // 0 = Sunday, 6 = Saturday
-            const isSaturday = dayOfWeek === 6;
+        console.log("API response received, processing...");
 
-            // --- Check for Holidays --- 
-            // CRITICAL: Replace with actual function from nepali-calendar-js docs!
-            // Example: const dayInfo = calendar.getDayInfo({ year: bsYear, month: bsMonth, day: bsDay });
-            // Example: const dayEvents = calendar.getEvents(bsYear, bsMonth, bsDay);
-            let dayInfo = null; // Placeholder
-            try {
-                 // Attempt to get day info - replace with actual library call
-                 dayInfo = calendar.getDateInfo({ year: bsYear, month: bsMonth, day: bsDay }); // GUESSING function name/params
-            } catch (libError) {
-                 console.warn(`[${dateNpString}] Error calling library function (maybe getDateInfo) for date: ${libError.message}`);
-                 dayInfo = null; // Ensure it's null on error
-            }
+        // Iterate through the response structure (years -> months -> days)
+        for (const year in apiData) {
+            if (!apiData[year] || typeof apiData[year] !== 'object') continue;
+            for (const month in apiData[year]) {
+                if (!apiData[year][month] || typeof apiData[year][month] !== 'object') continue;
+                for (const day in apiData[year][month]) {
+                    const dayData = apiData[year][month][day];
 
-            let holidayName = null;
-            let isHoliday = false;
+                    // Validate dayData structure from API
+                    if (!dayData || !dayData.date || !dayData.date.ad || !dayData.date.bs || !dayData.date.ad.year || !dayData.date.ad.month || !dayData.date.ad.day || !dayData.date.bs.year || !dayData.date.bs.month || !dayData.date.bs.day ) {
+                        console.warn(`Skipping malformed day data from API for ${year}-${month}-${day}`);
+                        continue;
+                    }
 
-            // Check the result from the library - ADJUST PROPERTY NAMES BASED ON DOCS!
-            if (dayInfo && dayInfo.isHoliday) { // GUESSING 'isHoliday' property
-                 isHoliday = true;
-                 holidayName = dayInfo.eventName || dayInfo.event || dayInfo.title || `Holiday`; // GUESSING event name property
-            } else if (dayInfo && Array.isArray(dayInfo.events)) {
-                // Alternative check if it returns an events array
-                const holidayEvent = dayInfo.events.find(e => e && e.isHoliday); // GUESSING structure
-                if (holidayEvent) {
-                    isHoliday = true;
-                    holidayName = holidayEvent.eventName || holidayEvent.event || holidayEvent.title || 'Holiday';
+                    // --- Check Holiday --- 
+                    const isHoliday = dayData.public_holiday === true;
+                    let holidayName = null;
+                    if (isHoliday) {
+                        // Try to get a name from the event array or use a default
+                        holidayName = Array.isArray(dayData.event) && dayData.event.length > 0
+                            ? dayData.event.join(', ') // Join event names if multiple
+                            : 'Public Holiday';
+                    }
+
+                    // --- Check Saturday --- 
+                    // Use the AD date provided by the API to determine day of week
+                    const targetGregorianDate = moment.tz({
+                        year: dayData.date.ad.year,
+                        month: dayData.date.ad.month - 1, // API month is 1-based, moment is 0-based
+                        day: dayData.date.ad.day
+                    }, NPT_TIMEZONE).startOf('day');
+
+                    if (!targetGregorianDate.isValid()) {
+                        console.warn(`Skipping day due to invalid AD date from API: ${year}-${month}-${day}`);
+                        continue;
+                    }
+
+                    const dayOfWeek = targetGregorianDate.day(); // 0 = Sunday, 6 = Saturday
+                    const isSaturday = dayOfWeek === 6;
+
+                    // Construct BS date string for logging
+                    const dateNpString = `${dayData.date.bs.year}-${String(dayData.date.bs.month).padStart(2, '0')}-${String(dayData.date.bs.day).padStart(2, '0')}`;
+
+                    console.log(`[PROCESS_DAY ${dateNpString}] AD:${targetGregorianDate.format('YYYY-MM-DD')} DayOfWeek:${dayOfWeek} isSaturday:${isSaturday} isHoliday:${isHoliday} holidayName:${holidayName || 'N/A'}`);
+
+                    if (isSaturday || isHoliday) {
+                        holidaysFound++;
+                        const effectiveHolidayName = holidayName || 'Saturday';
+                        const effectiveType = holidayName ? "Holiday" : "Saturday";
+
+                        console.log(`Found upcoming ${effectiveType}: ${effectiveHolidayName} on ${dateNpString} (Gregorian: ${targetGregorianDate.format('YYYY-MM-DD')})`);
+
+                        // Schedule notifications using the already calculated targetGregorianDate
+                        const twoDaysBeforeNpt = moment(targetGregorianDate).subtract(2, 'days').set({ hour: 20, minute: 0, second: 0, millisecond: 0 });
+                        const oneDayBeforeNpt = moment(targetGregorianDate).subtract(1, 'day').set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
+                        const sameDayNpt = moment(targetGregorianDate).set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
+
+                        scheduleNotification(effectiveHolidayName, dateNpString, '2 days prior', twoDaysBeforeNpt.utc().format());
+                        scheduleNotification(effectiveHolidayName, dateNpString, '1 day prior', oneDayBeforeNpt.utc().format());
+                        scheduleNotification(effectiveHolidayName, dateNpString, 'Same day', sameDayNpt.utc().format());
+                    }
                 }
             }
-            // --- End Holiday Check --- 
-
-
-            console.log(`[PROCESS_DAY ${dateNpString}] AD:${targetAdDateMoment.format('YYYY-MM-DD')} DayOfWeek:${dayOfWeek} isSaturday:${isSaturday} isHoliday:${isHoliday} holidayName:${holidayName || 'N/A'}`);
-
-            if (isSaturday || isHoliday) {
-                holidaysFound++;
-                const effectiveHolidayName = holidayName || 'Saturday';
-                const effectiveType = holidayName ? "Holiday" : "Saturday";
-
-                // Use the moment object we already have for the target AD date
-                const targetGregorianDate = targetAdDateMoment.clone().startOf('day'); // Clone to avoid modification
-
-                console.log(`Found upcoming ${effectiveType}: ${effectiveHolidayName} on ${dateNpString} (Gregorian: ${targetGregorianDate.format('YYYY-MM-DD')})`);
-
-                // Schedule notifications (using the targetGregorianDate directly)
-                const twoDaysBeforeNpt = moment(targetGregorianDate).subtract(2, 'days').set({ hour: 20, minute: 0, second: 0, millisecond: 0 });
-                const oneDayBeforeNpt = moment(targetGregorianDate).subtract(1, 'day').set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
-                const sameDayNpt = moment(targetGregorianDate).set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
-
-                scheduleNotification(effectiveHolidayName, dateNpString, '2 days prior', twoDaysBeforeNpt.utc().format());
-                scheduleNotification(effectiveHolidayName, dateNpString, '1 day prior', oneDayBeforeNpt.utc().format());
-                scheduleNotification(effectiveHolidayName, dateNpString, 'Same day', sameDayNpt.utc().format());
-            }
-
-        } catch (error) {
-            // Catch errors from ad2bs or other processing within the loop
-            console.error(`Error processing AD date ${adYear}-${adMonth}-${adDay}:`, error);
         }
+
+    } catch (error) {
+        console.error("API Call Error:", error.message);
+        if (error.response) {
+            // The request was made and the server responded with a status code
+            // that falls out of the range of 2xx
+            console.error("API Response Status:", error.response.status);
+            console.error("API Response Data:", error.response.data);
+        } else if (error.request) {
+            // The request was made but no response was received
+            console.error("API No Response Received. Request:", error.request);
+        } else {
+            // Something happened in setting up the request that triggered an Error
+            console.error('API Request Setup Error', error.message);
+        }
+        if (error.code === 'ECONNABORTED') {
+            console.error("API Request Timed Out.");
+       }
     }
 
     if (holidaysFound === 0) {
-        console.log("No upcoming holidays or Saturdays found within the next 30 days requiring notification scheduling.");
+        console.log("No upcoming holidays or Saturdays found via API within the next 30 days requiring notification scheduling.");
     }
     console.log("Daily check finished.");
 }
@@ -175,6 +188,7 @@ function calculateAndScheduleNotifications() {
 console.log('Setting up cron job to run daily at 00:05 NPT (Asia/Kathmandu)...');
 cron.schedule('5 0 * * *', () => {
     try {
+        // No need to await here unless the cron job needs to know when it finishes
         calculateAndScheduleNotifications();
     } catch (err) {
         console.error("FATAL ERROR in cron job execution:", err);
@@ -184,13 +198,14 @@ cron.schedule('5 0 * * *', () => {
     timezone: NPT_TIMEZONE
 });
 
-// --- Initial Run (Optional but recommended for testing) ---
+// --- Initial Run (Trigger async function) ---
 console.log('Performing initial run on startup...');
-// Added top-level try-catch for the initial run as well
-try {
-    calculateAndScheduleNotifications();
-} catch (err) {
-    console.error("FATAL ERROR during initial run:", err);
-}
+(async () => { // Use an async IIFE for the initial run
+    try {
+        await calculateAndScheduleNotifications(); // await ensures initial run completes before potentially exiting
+    } catch (err) {
+        console.error("FATAL ERROR during initial run:", err);
+    }
+})(); // Immediately invoke the async function
 
 console.log(`Notification scheduler started. Waiting for cron trigger at 00:05 NPT...`); 

@@ -89,7 +89,10 @@ function calculateAndScheduleNotifications() {
     let entriesProcessed = 0;
     let dataChunksReceived = 0; // Counter for raw data chunks
 
-    console.log(`Checking for holidays/Saturdays between ${todayGregorian.format('YYYY-MM-DD')} and ${thirtyDaysLaterGregorian.format('YYYY-MM-DD')} NPT.`);
+    // --- Log comparison boundaries once --- 
+    console.log(`Current Date (NPT): ${todayGregorian.format('YYYY-MM-DD HH:mm Z')}`);
+    console.log(`Target Window End (NPT): ${thirtyDaysLaterGregorian.format('YYYY-MM-DD HH:mm Z')}`);
+    console.log(`Checking for holidays/Saturdays within this window...`);
 
     // Create a file read stream
     const fileStream = fs.createReadStream(CALENDAR_FILE_PATH, { encoding: 'utf8' }); // Explicit encoding
@@ -167,15 +170,13 @@ function calculateAndScheduleNotifications() {
 
                     // Correct instantiation: Pass BS Year, Month (0-indexed), Day directly
                     const nepaliDate = new NepaliDate(bsDateParts[0], bsDateParts[1] - 1, bsDateParts[2]);
-
+                    const rawJsDate = nepaliDate.toJsDate(); // Get the raw JS Date
                     const holidayGregorianDate = moment(nepaliDate.toJsDate()).tz(NPT_TIMEZONE).startOf('day');
 
                     // --->>> DETAILED DATE LOGGING START
                     console.log(`[DEBUG ${date_np}] BS: ${date_np}, Type: ${effectiveType}, Name: ${holidayName}`);
+                    console.log(`[DEBUG ${date_np}] Raw JS Date:   ${rawJsDate.toISOString()} (from nepali-date-converter)`);
                     console.log(`[DEBUG ${date_np}] Calculated AD: ${holidayGregorianDate.format('YYYY-MM-DD HH:mm Z')}`);
-                    // Only log boundaries once if needed, or keep for context
-                    // console.log(`[DEBUG ${date_np}] Today AD:      ${todayGregorian.format('YYYY-MM-DD HH:mm Z')}`); 
-                    // console.log(`[DEBUG ${date_np}] +30 Days AD:   ${thirtyDaysLaterGregorian.format('YYYY-MM-DD HH:mm Z')}`); 
                     console.log(`[DEBUG ${date_np}] isAfterToday?  ${holidayGregorianDate.isAfter(todayGregorian)}`);
                     console.log(`[DEBUG ${date_np}] isBefore+30? ${holidayGregorianDate.isBefore(thirtyDaysLaterGregorian)}`);
                     // --->>> DETAILED DATE LOGGING END

@@ -168,17 +168,22 @@ function calculateAndScheduleNotifications() {
                         return;
                     }
 
-                    // Correct instantiation: Pass BS Year, Month (0-indexed), Day directly
+                    // --- Date Conversion Debugging --- 
                     const nepaliDate = new NepaliDate(bsDateParts[0], bsDateParts[1] - 1, bsDateParts[2]);
                     const rawJsDate = nepaliDate.toJsDate(); // Get the raw JS Date
+                    const momentInput = nepaliDate.toJsDate(); // Keep a separate ref for logging moment input
                     const holidayGregorianDate = moment(nepaliDate.toJsDate()).tz(NPT_TIMEZONE).startOf('day');
 
                     // --->>> DETAILED DATE LOGGING START
-                    console.log(`[DEBUG ${date_np}] BS: ${date_np}, Type: ${effectiveType}, Name: ${holidayName}`);
-                    console.log(`[DEBUG ${date_np}] Raw JS Date:   ${rawJsDate.toISOString()} (from nepali-date-converter)`);
-                    console.log(`[DEBUG ${date_np}] Calculated AD: ${holidayGregorianDate.format('YYYY-MM-DD HH:mm Z')}`);
-                    console.log(`[DEBUG ${date_np}] isAfterToday?  ${holidayGregorianDate.isAfter(todayGregorian)}`);
-                    console.log(`[DEBUG ${date_np}] isBefore+30? ${holidayGregorianDate.isBefore(thirtyDaysLaterGregorian)}`);
+                    console.log(`[DATE_CONV ${date_np}] BS Parts: ${bsDateParts.join(',')}`);
+                    // console.log(`[DATE_CONV ${date_np}] nepaliDate Object: ${JSON.stringify(nepaliDate)}`); // Might be too verbose
+                    console.log(`[DATE_CONV ${date_np}] toJsDate() Epoch MS: ${rawJsDate.getTime()}`);
+                    console.log(`[DATE_CONV ${date_np}] toJsDate() ISO String: ${rawJsDate.toISOString()}`);
+                    console.log(`[DATE_CONV ${date_np}] Moment Input Date Obj: ${momentInput.toString()}`);
+                    console.log(`[DATE_CONV ${date_np}] Moment Object (before tz/startOf): ${moment(momentInput).format()}`);
+                    console.log(`[DATE_CONV ${date_np}] Final Gregorian Moment (NPT): ${holidayGregorianDate.format('YYYY-MM-DD HH:mm:ss Z')}`);
+                    console.log(`[DATE_COMPARE ${date_np}] Vs Today (${todayGregorian.format('YYYY-MM-DD Z')}): isAfter? ${holidayGregorianDate.isAfter(todayGregorian)}`);
+                    console.log(`[DATE_COMPARE ${date_np}] Vs +30 (${thirtyDaysLaterGregorian.format('YYYY-MM-DD Z')}): isBefore? ${holidayGregorianDate.isBefore(thirtyDaysLaterGregorian)}`);
                     // --->>> DETAILED DATE LOGGING END
 
                     if (!holidayGregorianDate.isValid()) {

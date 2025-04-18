@@ -128,8 +128,8 @@ function calculateAndScheduleNotifications() {
         // Iterate through day entries within the month's array
         dataChunk.forEach(dayEntry => {
             entriesProcessed++;
-            // Basic validation of the incoming day object
-            if (!dayEntry || typeof dayEntry !== 'object' || !dayEntry.bs_year || !dayEntry.bs_month || !dayEntry.bs_day || !dayEntry.events || !Array.isArray(dayEntry.events)) {
+            // Basic validation FIRST
+            if (!dayEntry || typeof dayEntry !== 'object' || !dayEntry.bs_year || !dayEntry.bs_month || !dayEntry.bs_day || !dayEntry.events || !Array.isArray(dayEntry.events) || typeof dayEntry.week_day === 'undefined') {
                 // console.warn(`[Stream Data] Skipping malformed day entry:`, dayEntry); // Optional: Log malformed data
                 return; // Skip malformed entries
             }
@@ -139,40 +139,53 @@ function calculateAndScheduleNotifications() {
             // --- !!! CRITICAL ASSUMPTION AREA !!! ---
             // Verify these assumptions based on your specific '2082-calendar.json' structure.
             // Assumption 1: week_day === 6 means Saturday. (0=Sun? 1=Mon?)
-            const isSaturday = dayEntry.week_day === 6;
+            const weekDayValue = dayEntry.week_day;
+            const isSaturdayCheck = weekDayValue === 6;
             // Assumption 2: event.jds.gh === '1' indicates a relevant holiday.
-            const holidayEvent = dayEntry.events.find(event => event && event.jds && event.jds.gh === '1');
+            let holidayEventFound = null;
+            let foundGhValue = 'N/A'; // Default if not found
+            let foundGhType = 'N/A';
+
+            for (const event of dayEntry.events) {
+                if (event && event.jds && typeof event.jds.gh !== 'undefined') {
+                    foundGhValue = event.jds.gh; // Record the first non-undefined gh value found
+                    foundGhType = typeof foundGhValue;
+                    if (String(foundGhValue) === '1') { // Robust check against '1' or 1
+                        holidayEventFound = event;
+                        break; // Found a holiday, stop checking events for this day
+                    }
+                }
+            }
             // --- !!! END CRITICAL ASSUMPTION AREA !!! ---
 
             // --->>> MORE DETAILED LOGGING (EVERY DAY) START
             // Reduce log frequency if it gets too noisy, e.g., log every 100th entry
             // if (entriesProcessed % 100 === 0) {
-                console.log(`[PROCESS_DAY ${date_np}] week_day: ${dayEntry.week_day}, isSaturday: ${isSaturday}, holidayEventFound: ${!!holidayEvent}`);
+                console.log(`[PROCESS_DAY ${date_np}] week_day: ${weekDayValue} (type: ${typeof weekDayValue}), ghValue: ${foundGhValue} (type: ${foundGhType}), isSaturday: ${isSaturdayCheck}, isHoliday: ${!!holidayEventFound}`);
             // }
             // --->>> MORE DETAILED LOGGING (EVERY DAY) END
 
-            if (isSaturday || holidayEvent) {
-                const holidayName = holidayEvent ? (holidayEvent.jds?.ne || holidayEvent.jds?.en || holidayEvent.jtl || `Holiday on ${date_np}`) : 'Saturday';
-                const effectiveType = holidayEvent ? "Holiday" : "Saturday";
+            if (isSaturdayCheck || holidayEventFound) {
+                const holidayName = holidayEventFound ? (holidayEventFound.jds?.ne || holidayEventFound.jds?.en || holidayEventFound.jtl || `Holiday on ${date_np}`) : 'Saturday';
+                const effectiveType = holidayEventFound ? "Holiday" : "Saturday";
 
+                // --->>> DATE CONVERSION LOGIC (only runs if if-condition is true)
                 try {
                     const bsDateParts = date_np.split('-').map(Number);
                     if (bsDateParts.length !== 3 || bsDateParts.some(isNaN)) {
                         console.error(`[${date_np}] Invalid date format parsed: ${date_np} for ${holidayName}`);
                         return;
                     }
-
-                    // Validate month and day ranges before creating Date object
                     if (bsDateParts[1] < 1 || bsDateParts[1] > 12 || bsDateParts[2] < 1 || bsDateParts[2] > 32) {
                         console.error(`[${date_np}] Invalid month/day in date: ${date_np} for ${holidayName}`);
                         return;
                     }
 
-                    // --- Date Conversion Debugging --- 
+                    // --- Date Conversion Debugging ---
                     const nepaliDate = new NepaliDate(bsDateParts[0], bsDateParts[1] - 1, bsDateParts[2]);
-                    const rawJsDate = nepaliDate.toJsDate(); // Get the raw JS Date
-                    const momentInput = nepaliDate.toJsDate(); // Keep a separate ref for logging moment input
-                    const holidayGregorianDate = moment(nepaliDate.toJsDate()).tz(NPT_TIMEZONE).startOf('day');
+                    const rawJsDate = nepaliDate.toJsDate();
+                    const momentInput = nepaliDate.toJsDate();
+                    const holidayGregorianDate = moment(momentInput).tz(NPT_TIMEZONE).startOf('day');
 
                     // --->>> DETAILED DATE LOGGING START
                     console.log(`[DATE_CONV ${date_np}] BS Parts: ${bsDateParts.join(',')}`);
@@ -208,6 +221,7 @@ function calculateAndScheduleNotifications() {
                 } catch (dateError) {
                     console.error(`[${date_np}] Error processing date for ${holidayName}:`, dateError);
                 }
+                // --->>> END OF DATE CONVERSION LOGIC
             }
         }); // End of dataChunk.forEach
     }); // End of jsonParser.on('data')

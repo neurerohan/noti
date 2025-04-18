@@ -87,16 +87,16 @@ function calculateAndScheduleNotifications() {
     const thirtyDaysLaterGregorian = moment(todayGregorian).add(30, 'days');
     let holidaysFound = 0;
     let entriesProcessed = 0;
+    let dataChunksReceived = 0; // Counter for raw data chunks
 
     console.log(`Checking for holidays/Saturdays between ${todayGregorian.format('YYYY-MM-DD')} and ${thirtyDaysLaterGregorian.format('YYYY-MM-DD')} NPT.`);
 
     // Create a file read stream
-    const fileStream = fs.createReadStream(CALENDAR_FILE_PATH, { encoding: 'utf8' });
+    const fileStream = fs.createReadStream(CALENDAR_FILE_PATH, { encoding: 'utf8' }); // Explicit encoding
 
     // Create a JSON stream parser
-    // '*.*' assumes structure like { "monthKey": [ dayEntry1, dayEntry2 ], ... }
-    // It will emit each dayEntry object found within the arrays under each month key.
-    const jsonParser = JSONStream.parse('*.[]');
+    // Try simplest selector '*' which emits the value for each top-level key (should be arrays)
+    const jsonParser = JSONStream.parse('*');
 
     fileStream.pipe(jsonParser);
 
@@ -109,19 +109,21 @@ function calculateAndScheduleNotifications() {
     // Handle errors on the JSON parser stream
     jsonParser.on('error', (err) => {
         console.error(`FATAL: Error parsing calendar JSON stream: ${err.message}`);
-        fileStream.destroy(); // Close the file stream on parse error
+        if (!fileStream.destroyed) fileStream.destroy(); // Close the file stream on parse error
     });
 
-    // Process each month's array of dayEntries emitted by the parser
-    jsonParser.on('data', (monthArray) => {
+    // Process each value emitted by the parser (should be month arrays)
+    jsonParser.on('data', (dataChunk) => {
+        dataChunksReceived++;
+        console.log(`[Stream Chunk ${dataChunksReceived}] Received data of type: ${typeof dataChunk}`);
         // Ensure we received an array
-        if (!Array.isArray(monthArray)) {
-            console.warn("[Stream Data] Received non-array data chunk, skipping:", typeof monthArray);
+        if (!Array.isArray(dataChunk)) {
+            console.warn("[Stream Chunk ${dataChunksReceived}] Data chunk is not an array, skipping.");
             return;
         }
 
         // Iterate through day entries within the month's array
-        monthArray.forEach(dayEntry => {
+        dataChunk.forEach(dayEntry => {
             entriesProcessed++;
             // Basic validation of the incoming day object
             if (!dayEntry || typeof dayEntry !== 'object' || !dayEntry.bs_year || !dayEntry.bs_month || !dayEntry.bs_day || !dayEntry.events || !Array.isArray(dayEntry.events)) {
@@ -201,15 +203,15 @@ function calculateAndScheduleNotifications() {
                     console.error(`[${date_np}] Error processing date for ${holidayName}:`, dateError);
                 }
             }
-        }); // End of monthArray.forEach
+        }); // End of dataChunk.forEach
     }); // End of jsonParser.on('data')
 
     // Log when the stream ends
     jsonParser.on('end', () => {
-        console.log(`Finished processing calendar stream. Total entries processed: ${entriesProcessed}.`);
+        console.log(`Finished processing calendar stream. Chunks received: ${dataChunksReceived}, Total day entries processed: ${entriesProcessed}.`);
         // Check entriesProcessed count here. If it's still 0, the '*.[]' selector also failed.
         if (entriesProcessed === 0) {
-            console.warn("WARNING: JSONStream did not process any day entries. Check JSON structure and parser selector ('*.[]').");
+            console.warn("WARNING: JSONStream did not process any day entries. Check JSON structure and parser selector ('*'). Chunks received might indicate structure issues.");
         }
         else if (holidaysFound === 0) {
             console.log("No upcoming holidays or Saturdays found within the next 30 days requiring notification scheduling.");

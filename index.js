@@ -127,6 +127,10 @@ function calculateAndScheduleNotifications() {
             const holidayEvent = dayEntry.events.find(event => event && event.jds && event.jds.gh === '1');
             // --- !!! END CRITICAL ASSUMPTION AREA !!! ---
 
+            // --->>> MORE DETAILED LOGGING (EVERY DAY) START
+            console.log(`[PROCESS_DAY ${date_np}] week_day: ${dayEntry.week_day}, isSaturday: ${isSaturday}, holidayEventFound: ${!!holidayEvent}`);
+            // --->>> MORE DETAILED LOGGING (EVERY DAY) END
+
             if (isSaturday || holidayEvent) {
                 const holidayName = holidayEvent ? (holidayEvent.jds?.ne || holidayEvent.jds?.en || holidayEvent.jtl || `Holiday on ${date_np}`) : 'Saturday';
                 const effectiveType = holidayEvent ? "Holiday" : "Saturday";
@@ -152,8 +156,9 @@ function calculateAndScheduleNotifications() {
                     // --->>> DETAILED DATE LOGGING START
                     console.log(`[DEBUG ${date_np}] BS: ${date_np}, Type: ${effectiveType}, Name: ${holidayName}`);
                     console.log(`[DEBUG ${date_np}] Calculated AD: ${holidayGregorianDate.format('YYYY-MM-DD HH:mm Z')}`);
-                    console.log(`[DEBUG ${date_np}] Today AD:      ${todayGregorian.format('YYYY-MM-DD HH:mm Z')}`);
-                    console.log(`[DEBUG ${date_np}] +30 Days AD:   ${thirtyDaysLaterGregorian.format('YYYY-MM-DD HH:mm Z')}`);
+                    // Only log boundaries once if needed, or keep for context
+                    // console.log(`[DEBUG ${date_np}] Today AD:      ${todayGregorian.format('YYYY-MM-DD HH:mm Z')}`); 
+                    // console.log(`[DEBUG ${date_np}] +30 Days AD:   ${thirtyDaysLaterGregorian.format('YYYY-MM-DD HH:mm Z')}`); 
                     console.log(`[DEBUG ${date_np}] isAfterToday?  ${holidayGregorianDate.isAfter(todayGregorian)}`);
                     console.log(`[DEBUG ${date_np}] isBefore+30? ${holidayGregorianDate.isBefore(thirtyDaysLaterGregorian)}`);
                     // --->>> DETAILED DATE LOGGING END

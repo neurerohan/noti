@@ -144,9 +144,8 @@ function calculateAndScheduleNotifications() {
                          return;
                     }
 
-                    const nepaliDate = new NepaliDate(new Date(bsDateParts[0], bsDateParts[1] - 1, bsDateParts[2]));
-                    // Add check for invalid date conversion if NepaliDate library provides it
-                    // if (!nepaliDate.isValid()) { ... } // Hypothetical check
+                    // Correct instantiation: Pass BS Year, Month (0-indexed), Day directly
+                    const nepaliDate = new NepaliDate(bsDateParts[0], bsDateParts[1] - 1, bsDateParts[2]);
 
                     const holidayGregorianDate = moment(nepaliDate.toJsDate()).tz(NPT_TIMEZONE).startOf('day');
 

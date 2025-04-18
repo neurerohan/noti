@@ -149,6 +149,15 @@ function calculateAndScheduleNotifications() {
 
                     const holidayGregorianDate = moment(nepaliDate.toJsDate()).tz(NPT_TIMEZONE).startOf('day');
 
+                    // --->>> DETAILED DATE LOGGING START
+                    console.log(`[DEBUG ${date_np}] BS: ${date_np}, Type: ${effectiveType}, Name: ${holidayName}`);
+                    console.log(`[DEBUG ${date_np}] Calculated AD: ${holidayGregorianDate.format('YYYY-MM-DD HH:mm Z')}`);
+                    console.log(`[DEBUG ${date_np}] Today AD:      ${todayGregorian.format('YYYY-MM-DD HH:mm Z')}`);
+                    console.log(`[DEBUG ${date_np}] +30 Days AD:   ${thirtyDaysLaterGregorian.format('YYYY-MM-DD HH:mm Z')}`);
+                    console.log(`[DEBUG ${date_np}] isAfterToday?  ${holidayGregorianDate.isAfter(todayGregorian)}`);
+                    console.log(`[DEBUG ${date_np}] isBefore+30? ${holidayGregorianDate.isBefore(thirtyDaysLaterGregorian)}`);
+                    // --->>> DETAILED DATE LOGGING END
+
                     if (!holidayGregorianDate.isValid()) {
                         console.error(`[${date_np}] Gregorian date conversion failed for ${holidayName}`);
                         return;

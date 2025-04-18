@@ -22,6 +22,7 @@
     "dotenv": "^16.4.5",
     "moment-timezone": "^0.5.45",
     "nepali-date-converter": "^3.3.1",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "JSONStream": "^1.3.5"
   }
 } 
